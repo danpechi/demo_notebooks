@@ -1,296 +1,187 @@
-# Quick Reference Guide - Vector Search Evaluation
+# Prompt Registry, Optimization, and Migration
 
-## 🚀 Quick Start (3 Steps)
+A comprehensive guide to optimizing and managing prompts when migrating between different language models using MLflow and Databricks Foundation Model APIs.
 
-### 1. Update Configuration
+## Overview
+
+This notebook demonstrates how to optimize prompts for different language models and manage them effectively using MLflow's prompt registry. Model switching is not as simple as swapping API endpoints—each model may require different prompt engineering to achieve optimal performance. This notebook shows you how to:
+
+- Register and version prompts in MLflow
+- Optimize prompts using training data with GepaPromptOptimizer
+- Migrate prompts across different models (GPT-5, Gemma 3, GPT-OSS-20B)
+- Use aliases to manage model-specific prompt versions
+
+## Use Case
+
+The notebook focuses on a text classification task: categorizing medical research abstracts into one of five categories:
+- `BACKGROUND`
+- `METHODS`
+- `OBJECTIVE`
+- `RESULTS`
+- `CONCLUSIONS`
+
+The goal is to optimize the model to output only the classification label without additional explanation.
+
+## Prerequisites
+
+### Required Access
+- Databricks workspace
+- Access to Databricks Foundation Model APIs
+- Permissions to create catalogs and schemas in Unity Catalog
+
+### Dependencies
 ```python
-CATALOG = "main"                          # YOUR CATALOG
-SCHEMA = "default"                        # YOUR SCHEMA  
-VECTOR_SEARCH_ENDPOINT = "vs_endpoint"    # YOUR ENDPOINT NAME
+mlflow
+databricks-sdk
+dspy
+openai
 ```
 
-### 2. Run All Cells
-- Ctrl+Shift+Enter (or Run All in Databricks)
-- Estimated time: 15-30 minutes for 1K documents
+## Setup
 
-### 3. View Results
-- Check MLflow UI for metrics
-- View visualizations in notebook
-- Query results table: `{catalog}.{schema}.vector_search_eval_results`
+### 1. Configure Your Environment
 
----
+Update the catalog and schema variables in the notebook to match your environment:
 
-## 📊 Key Metrics Explained
-
-| Metric | Formula | Best Value | What It Means |
-|--------|---------|------------|---------------|
-| **Hit Rate@K** | # hits / # queries | 1.0 (100%) | Found correct doc in top-K |
-| **MRR** | Avg(1/rank) | 1.0 | Quality of ranking |
-| **Avg Rank** | Mean rank of hits | 1.0 | Typical position when found |
-
----
-
-## 🔧 Quick Customizations
-
-### Use Your Own Documents
 ```python
-# Replace Wikipedia loading with:
-documents = [
+catalog = "main"  # Change to your catalog
+schema = "default"  # Change to your schema
+prompt_registry_name = "new_prompt_registry"
+```
+
+### 2. Install Dependencies
+
+The notebook automatically installs required packages:
+```python
+%pip install --upgrade mlflow databricks-sdk dspy openai
+```
+
+## Workflow
+
+### Step 1: Register Initial Prompt
+
+Create a basic prompt template and register it in the MLflow prompt registry:
+
+```python
+prompt = mlflow.genai.register_prompt(
+    name=prompt_location,
+    template="classify this: {{query}}",
+)
+```
+
+### Step 2: Test Baseline Performance
+
+Evaluate how the model performs with the basic prompt. The initial prompt is intentionally minimal to demonstrate the improvement from optimization.
+
+### Step 3: Optimize with Training Data
+
+Use MLflow's `GepaPromptOptimizer` to automatically improve the prompt based on a dataset of examples with expected outputs:
+
+- Provide input queries and expected classifications
+- Define expectations and constraints (e.g., valid classification labels)
+- Let the optimizer generate an improved prompt
+- Register the optimized prompt as a new version
+
+### Step 4: Migrate to Different Models
+
+When switching models (e.g., from GPT-5 to Gemma 3), the optimized prompt may not perform well. The notebook shows how to:
+
+1. Re-run optimization for the new model
+2. Register the new optimized prompt as another version
+3. Create aliases for model-specific prompts (e.g., `@gpt5`, `@gemma3`, `@gpt_oss_20b`)
+
+### Step 5: Load Model-Specific Prompts
+
+Use aliases to load the appropriate prompt version for each model:
+
+```python
+# For GPT-5
+prompt = mlflow.genai.load_prompt(f"prompts:/{prompt_location}@gpt5")
+
+# For Gemma 3
+prompt = mlflow.genai.load_prompt(f"prompts:/{prompt_location}@gemma3")
+
+# For GPT-OSS-20B
+prompt = mlflow.genai.load_prompt(f"prompts:/{prompt_location}@gpt_oss_20b")
+```
+
+## Key Features
+
+### MLflow Prompt Registry
+- **Version Control**: Track all prompt iterations
+- **Aliases**: Assign meaningful names to specific versions (e.g., `production`, `gpt5`, `gemma3`)
+- **Centralized Management**: Single source of truth for all prompts
+
+### GepaPromptOptimizer
+- **Automated Optimization**: Improve prompts based on training data
+- **Scoring**: Uses correctness metrics to evaluate prompt quality
+- **Iterative Refinement**: Generates multiple candidate prompts and selects the best
+
+### Model Flexibility
+- Easy switching between models
+- Model-specific prompt optimization
+- Consistent interface across different models
+
+## Training Data Format
+
+The optimization requires training data in the following structure:
+
+```python
+dataset = [
     {
-        "id": "1",
-        "title": "Your Document Title",
-        "text": "Your document content...",
-        "url": "https://..."
+        "inputs": {"query": "Input text to classify"},
+        "outputs": {"response": "EXPECTED_LABEL"},  # Optional
+        "expectations": {
+            "expected_response": "EXPECTED_LABEL",  # For exact match
+            "expected_facts": ["Constraint description"]  # For validation rules
+        }
     },
-    # ... more documents
+    # More examples...
 ]
 ```
 
-### Change Evaluation Size
-```python
-SAMPLE_SIZE = 1000          # Number of docs to index
-EVAL_SAMPLE_SIZE = 50       # Number of test queries
-k_value = 5                 # Top-K retrieval
-```
+## Expected Results
 
-### Add More Models
-```python
-EMBEDDING_MODELS = [
-    "databricks-gte-large-en",
-    "databricks-bge-large-en",
-    "sentence-transformers/all-MiniLM-L6-v2"  # Add more
-]
-```
+- **Before Optimization**: Basic classification with verbose explanations
+- **After Optimization**: Concise, single-word classification labels
+- **Cross-Model**: Consistent performance across different models with their optimized prompts
 
----
+## Best Practices
 
-## 🎯 Configuration Matrix
+1. **Start Simple**: Begin with a minimal prompt to establish a baseline
+2. **Provide Diverse Examples**: Include representative samples from all classification categories
+3. **Define Clear Expectations**: Specify both expected outputs and constraints
+4. **Re-optimize Per Model**: Don't assume prompts transfer perfectly between models
+5. **Use Aliases**: Organize prompts by model or use case for easy reference
+6. **Iterate**: Run multiple optimization rounds if initial results aren't satisfactory
 
-This notebook evaluates all combinations:
+## Troubleshooting
 
-| Model | Retrieval Type | Total Configs |
-|-------|----------------|---------------|
-| databricks-gte-large-en | Dense | 1 |
-| databricks-gte-large-en | Hybrid | 1 |
-| databricks-bge-large-en | Dense | 1 |
-| databricks-bge-large-en | Hybrid | 1 |
-| **Total** | | **4** |
+### Common Issues
 
----
+**Issue**: Optimization runs slowly or times out
+- **Solution**: Reduce the size of your training dataset or number of optimization iterations
 
-## 📈 Expected Runtime
+**Issue**: Model outputs unexpected formats
+- **Solution**: Add more specific constraints in the `expected_facts` field
 
-| Component | Time (1K docs) | Notes |
-|-----------|----------------|-------|
-| Data Loading | 2-3 min | HuggingFace download |
-| Index Creation | 1-2 min | Per index |
-| Embedding Generation | 10-20 min | Faster with GPU |
-| Evaluation | 2-5 min | Per configuration |
-| **Total** | **~15-30 min** | Full pipeline |
+**Issue**: Cannot access prompt registry
+- **Solution**: Verify your catalog and schema permissions in Unity Catalog
 
----
+## Next Steps
 
-## 🎨 Understanding Results
+- Experiment with different models and compare performance
+- Expand the training dataset for better optimization results
+- Deploy optimized prompts to production serving endpoints
+- Set up automated evaluation pipelines to monitor prompt performance
+- Explore advanced optimization parameters in GepaPromptOptimizer
 
-### Good Performance Indicators
-- ✅ Hit Rate@5 > 70%
-- ✅ MRR > 0.60
-- ✅ Average Rank < 2.5
+## References
 
-### Red Flags
-- ⚠️ Hit Rate@5 < 50%
-- ⚠️ MRR < 0.40
-- ⚠️ Large variance across queries
+- [MLflow Prompt Engineering Documentation](https://mlflow.org/docs/latest/llms/prompt-engineering/index.html)
+- [Databricks Foundation Model APIs](https://docs.databricks.com/en/machine-learning/foundation-models/index.html)
+- [Unity Catalog](https://docs.databricks.com/en/data-governance/unity-catalog/index.html)
 
-### Common Patterns
-- Hybrid typically beats Dense by 5-10%
-- Both models usually perform similarly
-- Performance varies by query complexity
+## License
 
----
-
-## 🔍 Key Code Snippets
-
-### Create Production Retriever
-```python
-from databricks.vector_search.client import VectorSearchClient
-
-vsc = VectorSearchClient()
-index = vsc.get_index("catalog.schema.index_name")
-
-# Dense search
-results = index.similarity_search(
-    query_vector=embedding,
-    columns=["id", "text", "title"],
-    num_results=5
-)
-
-# Hybrid search  
-results = index.similarity_search(
-    query_vector=embedding,
-    query_text=query,  # Add this for hybrid
-    columns=["id", "text", "title"],
-    num_results=5
-)
-```
-
-### Query MLflow Results
-```python
-import mlflow
-
-experiment = mlflow.get_experiment_by_name(EXPERIMENT_NAME)
-runs = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
-
-# Get best run
-best_run = runs.loc[runs['metrics.hit_rate@k'].idxmax()]
-print(f"Best config: {best_run['params.embedding_model']}")
-print(f"Hit rate: {best_run['metrics.hit_rate@k']}")
-```
-
-### Access Results Table
-```python
-results = spark.table("catalog.schema.vector_search_eval_results")
-
-# Filter to specific config
-gte_hybrid = results.filter(
-    (col("model") == "databricks-gte-large-en") &
-    (col("retrieval_type") == "hybrid")
-)
-
-# Calculate custom metrics
-hit_rate = gte_hybrid.filter(col("hit@k") == True).count() / gte_hybrid.count()
-```
-
----
-
-## 🐛 Common Issues & Quick Fixes
-
-### Issue: Endpoint Not Found
-```python
-# Create endpoint manually:
-from databricks.vector_search.client import VectorSearchClient
-vsc = VectorSearchClient()
-vsc.create_endpoint(
-    name="my_endpoint",
-    endpoint_type="STANDARD"
-)
-```
-
-### Issue: Out of Memory
-```python
-# Reduce batch size in embedding generation:
-batch_size = 25  # Instead of 50
-
-# Or reduce sample size:
-SAMPLE_SIZE = 500  # Instead of 1000
-```
-
-### Issue: Slow Performance
-```python
-# Use GPU cluster:
-# - g4dn.xlarge (AWS)
-# - Standard_NC6s_v3 (Azure)
-# - n1-standard-4 + 1 NVIDIA T4 (GCP)
-```
-
-### Issue: Index Creation Fails
-```python
-# Delete existing index first:
-try:
-    vsc.delete_index("catalog.schema.index_name")
-except:
-    pass
-
-# Wait for deletion
-import time
-time.sleep(10)
-
-# Then recreate
-```
-
----
-
-## 📊 MLflow UI Navigation
-
-1. **View Experiment**: 
-   - Navigate to MLflow in Databricks sidebar
-   - Find experiment: `{your_username}/vector_search_evaluation`
-
-2. **Compare Runs**:
-   - Select multiple runs
-   - Click "Compare"
-   - View metric charts
-
-3. **View Artifacts**:
-   - Click on a run
-   - Scroll to "Artifacts" section
-   - Download visualizations
-
----
-
-## 🎯 Decision Guide
-
-### Choose Dense Retrieval When:
-- Queries are conceptual/semantic
-- Storage/compute costs are critical
-- Exact term matching is less important
-- Query latency must be minimal
-
-### Choose Hybrid Search When:
-- Queries contain specific terms/names
-- Accuracy is more important than speed
-- Budget allows for extra compute
-- Users expect exact keyword matches
-
-### Choose GTE vs BGE:
-- **GTE**: Slightly better for general domains
-- **BGE**: Slightly better for technical content
-- **Reality**: Performance is usually similar (~1-3% difference)
-
----
-
-## 💾 Cleanup After Testing
-
-```python
-from databricks.vector_search.client import VectorSearchClient
-
-vsc = VectorSearchClient()
-
-# Delete indexes
-for model in EMBEDDING_MODELS:
-    index_name = f"{CATALOG}.{SCHEMA}.{TABLE_NAME}_{model.replace('-', '_')}_index"
-    try:
-        vsc.delete_index(index_name)
-        print(f"Deleted {index_name}")
-    except:
-        pass
-
-# Delete endpoint (if you created it)
-# vsc.delete_endpoint(VECTOR_SEARCH_ENDPOINT)
-
-# Drop tables
-spark.sql(f"DROP TABLE IF EXISTS {CATALOG}.{SCHEMA}.{TABLE_NAME}")
-spark.sql(f"DROP TABLE IF EXISTS {CATALOG}.{SCHEMA}.vector_search_eval_results")
-```
-
----
-
-## 📚 Useful Links
-
-- [Vector Search Docs](https://docs.databricks.com/en/generative-ai/vector-search.html)
-- [MLflow Guide](https://mlflow.org/docs/latest/llms/index.html)
-- [Evaluation Metrics](https://docs.databricks.com/en/generative-ai/agent-evaluation/index.html)
-
----
-
-## 🚀 Next Steps After Demo
-
-1. **Scale**: Test with 10K+ documents
-2. **Real Queries**: Use actual user queries
-3. **Add Reranking**: Cross-encoder for top results
-4. **Deploy**: Integrate best config into production
-5. **Monitor**: Track real-world performance
-
----
-
-**Pro Tip**: Start with default settings, analyze results, then customize based on your specific needs!
+This notebook is provided as an example for educational and development purposes.
